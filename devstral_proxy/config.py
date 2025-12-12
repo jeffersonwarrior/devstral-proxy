@@ -60,13 +60,25 @@ class Settings(BaseSettings):
                 "tool_call_format": "mistral",
                 "requires_strict_validation": True,
                 "max_tool_calls": 10,
-                "tool_call_timeout": 30.0
+                "tool_call_timeout": 30.0,
+                "supports_parallel_tools": True,
+                "max_parallel_tools": 3
+            },
+            "devstral-small": {
+                "tool_call_format": "mistral",
+                "requires_strict_validation": True,
+                "max_tool_calls": 10,
+                "tool_call_timeout": 30.0,
+                "supports_parallel_tools": True,
+                "max_parallel_tools": 3
             },
             "devstral-2": {
                 "tool_call_format": "mistral",
                 "requires_strict_validation": True,
                 "max_tool_calls": 15,
-                "tool_call_timeout": 45.0
+                "tool_call_timeout": 45.0,
+                "supports_parallel_tools": True,
+                "max_parallel_tools": 5
             }
         },
         description="Model-specific configuration overrides"
