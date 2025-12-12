@@ -34,6 +34,30 @@ def log_message(message: str, level: str = "info"):
         logger.info(message)
 
 
+def validate_task_execution_response(response: Dict[str, Any], request_id: str) -> bool:
+    """
+    Validate that a task execution response actually contains tool calls
+    
+    Args:
+        response: Response from the LLM
+        request_id: Request ID for logging
+        
+    Returns:
+        True if response contains tool calls, False otherwise
+    """
+    if not isinstance(response, dict):
+        return False
+    
+    choices = response.get("choices", [])
+    for choice in choices:
+        message = choice.get("message", {})
+        if message.get("tool_calls"):
+            return True
+    
+    log_message(f"[{request_id}] Task execution response missing tool calls", level="warning")
+    return False
+
+
 def normalize_content(content: Any) -> str:
     """
     Normalize OpenAI-style content to plain string
@@ -229,24 +253,68 @@ def sanitize_request_body(body: Dict[str, Any]) -> Dict[str, Any]:
     # Validate tool call correspondence
     mistral_messages = validate_tool_call_correspondence(mistral_messages)
 
-    # Mistral requires tool messages to be followed by assistant or be at end
-    # Only add dummy assistant for:
-    # 1. Tool messages at the end (no next message)
-    # 2. Tool messages followed by user (invalid sequence)
-    # Do NOT add between tool and another tool (breaks correspondence)
-    i = 0
-    while i < len(mistral_messages):
-        if mistral_messages[i].get("role") == "tool":
-            next_role = mistral_messages[i + 1].get("role") if i + 1 < len(mistral_messages) else None
+    # Mistral validation is strict: tool_calls must be matched with tool responses 1:1
+    # Remove tool responses that are problematic, then clean up orphaned tool_calls
+    
+    # First pass: identify all tool calls and responses
+    tool_calls_by_id = {}
+    for msg in mistral_messages:
+        if msg.get("role") == "assistant" and msg.get("tool_calls"):
+            for tc in msg["tool_calls"]:
+                tool_calls_by_id[tc.get("id")] = True
+    
+    tool_responses_by_id = {}
+    for msg in mistral_messages:
+        if msg.get("role") == "tool":
+            tool_responses_by_id[msg.get("tool_call_id")] = True
+    
+    # Second pass: mark tool responses for removal if problematic
+    messages_to_remove = []
+    tool_ids_to_remove = set()
+    
+    for i, msg in enumerate(mistral_messages):
+        if msg.get("role") == "tool":
+            tool_call_id = msg.get("tool_call_id")
+            is_last_message = (i == len(mistral_messages) - 1)
+            is_orphaned = tool_call_id not in tool_calls_by_id
             
-            # If tool is at end or followed by user, add dummy assistant
-            if next_role is None or next_role == "user":
-                log_message(f"Added dummy assistant after tool: {mistral_messages[i].get('tool_call_id', 'unknown')} (next: {next_role})", level="debug")
-                mistral_messages.insert(i + 1, {"role": "assistant", "content": " "})
-                i += 1  # Skip the newly inserted message
-            # If followed by another tool, keep as-is (valid sequence)
-            # If followed by assistant, keep as-is (valid sequence)
-        i += 1
+            # Check if followed by user without assistant in between
+            next_is_user_without_assistant = False
+            if i + 1 < len(mistral_messages):
+                next_msg = mistral_messages[i + 1]
+                if next_msg.get("role") == "user":
+                    next_is_user_without_assistant = True
+            
+            # Remove if problematic
+            if is_orphaned or is_last_message or next_is_user_without_assistant:
+                log_message(f"Removing tool response (last={is_last_message}, orphaned={is_orphaned}, user_after={next_is_user_without_assistant}): {tool_call_id}", level="debug")
+                messages_to_remove.append(i)
+                tool_ids_to_remove.add(tool_call_id)
+    
+    # Remove tool messages
+    for i in sorted(messages_to_remove, reverse=True):
+        mistral_messages.pop(i)
+    
+    # Third pass: also remove tool_calls that don't have responses
+    for i, msg in enumerate(mistral_messages):
+        if msg.get("role") == "assistant" and msg.get("tool_calls"):
+            original_tcs = msg["tool_calls"]
+            # Keep only tool_calls that have responses
+            msg["tool_calls"] = [
+                tc for tc in original_tcs
+                if tc.get("id") in tool_responses_by_id and tc.get("id") not in tool_ids_to_remove
+            ]
+            
+            removed_count = len(original_tcs) - len(msg["tool_calls"])
+            if removed_count > 0:
+                log_message(f"Removed {removed_count} orphaned tool_calls from assistant", level="debug")
+            
+            # If no tool_calls left, remove the field (don't set to None)
+            if not msg["tool_calls"]:
+                msg.pop("tool_calls", None)
+                # Mistral requires content OR tool_calls - set placeholder if needed
+                if msg.get("content") is None or msg.get("content") == "":
+                    msg["content"] = " "
     
     # Handle generation flags
     if body_copy.get("add_generation_prompt") and body_copy.get("continue_final_message"):

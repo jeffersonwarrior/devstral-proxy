@@ -75,6 +75,50 @@ class DevstralProxy:
             "supported_models": list(self.model_settings.keys()),
             "timestamp": datetime.now().isoformat(),
         }
+    def _detect_task_request(self, body: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        Detect if this is a task execution request (not just a chat message)
+        
+        Returns task metadata if detected, None otherwise
+        """
+        messages = body.get("messages", [])
+        if not messages:
+            return None
+        
+        last_message = messages[-1]
+        content = normalize_content(last_message.get("content", ""))
+        
+        # Detect task patterns
+        task_indicators = [
+            "do these items",
+            "implement these",
+            "create these",
+            "write these",
+            "fix these",
+            "complete these items",
+            "execute these tasks",
+            "proceed with",
+            "start implementing"
+        ]
+        
+        content_lower = content.lower()
+        detected_task = None
+        
+        for indicator in task_indicators:
+            if indicator in content_lower:
+                detected_task = indicator
+                break
+        
+        if detected_task:
+            return {
+                "type": "task_execution",
+                "trigger": detected_task,
+                "content": content,
+                "requires_tool_execution": True
+            }
+        
+        return None
+
     async def handle_chat_completion(self, request: Request):
         """
         Handle chat completion requests
@@ -95,6 +139,28 @@ class DevstralProxy:
                     content={"error": f"Invalid JSON: {str(e)}"},
                     status_code=400,
                 )
+            
+            # Detect task execution requests
+            task_metadata = self._detect_task_request(body)
+            if task_metadata:
+                log_message(f"[{request_id}] TASK EXECUTION DETECTED: {task_metadata['trigger']}", level="info")
+                log_message(f"[{request_id}] Task requires actual tool execution (not just LLM response)", level="warning")
+                # Add instruction to ensure the model actually executes tools
+                if body.get("messages"):
+                    # Find or create system message
+                    system_msg = None
+                    for msg in body["messages"]:
+                        if msg.get("role") == "system":
+                            system_msg = msg
+                            break
+                    
+                    if system_msg:
+                        system_msg["content"] += "\n\nIMPORTANT: This is a TASK EXECUTION request. You MUST call the appropriate tools to complete the requested items. Do not just respond with 'Task completed' - actually execute the work."
+                    else:
+                        body["messages"].insert(0, {
+                            "role": "system",
+                            "content": "IMPORTANT: This is a TASK EXECUTION request. You MUST call the appropriate tools to complete the requested items. Do not just respond with 'Task completed' - actually execute the work."
+                        })
             # Sanitize and convert request
             try:
                 original_streaming = body.get("stream", False)
@@ -135,6 +201,20 @@ class DevstralProxy:
             try:
                 response_data = resp.json()
                 sanitized_response = sanitize_response_body(response_data)
+                
+                # Validate task execution response
+                if task_metadata:
+                    has_tool_calls = False
+                    if "choices" in sanitized_response:
+                        for choice in sanitized_response["choices"]:
+                            if "message" in choice and choice["message"].get("tool_calls"):
+                                has_tool_calls = True
+                                break
+                    
+                    if not has_tool_calls:
+                        log_message(f"[{request_id}] WARNING: Task execution request received no tool calls!", level="warning")
+                        log_message(f"[{request_id}] Response was: {json.dumps(sanitized_response, indent=2, default=str)}", level="warning")
+                
                 # Log tool call information from response
                 if "choices" in sanitized_response:
                     for i, choice in enumerate(sanitized_response["choices"]):
@@ -143,8 +223,6 @@ class DevstralProxy:
                             if tool_calls:
                                 tool_names = [tc.get("function", {}).get("name", "unknown") for tc in tool_calls]
                                 log_message(f"[{request_id}] Response contains {len(tool_calls)} tool calls: {', '.join(tool_names)}", level="info")
-                                # Check for tool call loops
-                                    # Check if this is a legitimate VIBE request
                                 # Log each tool call details
                                 for j, tool_call in enumerate(tool_calls):
                                     func_name = tool_call.get("function", {}).get("name", "unknown")
