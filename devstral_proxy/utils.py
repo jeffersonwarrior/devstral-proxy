@@ -228,15 +228,40 @@ def sanitize_request_body(body: Dict[str, Any]) -> Dict[str, Any]:
     
     # Validate tool call correspondence
     mistral_messages = validate_tool_call_correspondence(mistral_messages)
+
+    # Mistral requires tool messages to be followed by assistant or be at end
+    # Only add dummy assistant for:
+    # 1. Tool messages at the end (no next message)
+    # 2. Tool messages followed by user (invalid sequence)
+    # Do NOT add between tool and another tool (breaks correspondence)
+    i = 0
+    while i < len(mistral_messages):
+        if mistral_messages[i].get("role") == "tool":
+            next_role = mistral_messages[i + 1].get("role") if i + 1 < len(mistral_messages) else None
+            
+            # If tool is at end or followed by user, add dummy assistant
+            if next_role is None or next_role == "user":
+                log_message(f"Added dummy assistant after tool: {mistral_messages[i].get('tool_call_id', 'unknown')} (next: {next_role})", level="debug")
+                mistral_messages.insert(i + 1, {"role": "assistant", "content": " "})
+                i += 1  # Skip the newly inserted message
+            # If followed by another tool, keep as-is (valid sequence)
+            # If followed by assistant, keep as-is (valid sequence)
+        i += 1
     
     # Handle generation flags
     if body_copy.get("add_generation_prompt") and body_copy.get("continue_final_message"):
         body_copy.pop("continue_final_message", None)
     
     # Add dummy user message if needed
-    if mistral_messages and mistral_messages[-1].get("role") == "assistant":
-        if body_copy.get("add_generation_prompt", True):
-            mistral_messages.append({"role": "user", "content": " "})
+    # Only add if last message is assistant (not tool)
+    # Mistral doesn't allow user message directly after tool message
+    if mistral_messages:
+        last_role = mistral_messages[-1].get("role") if mistral_messages else None
+        log_message(f"Last message role before dummy user: {last_role}, total messages: {len(mistral_messages)}", level="debug")
+        if last_role == "assistant":
+            if body_copy.get("add_generation_prompt", True):
+                mistral_messages.append({"role": "user", "content": " "})
+                log_message(f"Added dummy user message. Total messages now: {len(mistral_messages)}", level="debug")
     
     # Remove stream options if stream is False
     stream_value = body_copy.get("stream", False)
@@ -297,6 +322,7 @@ def sanitize_request_body(body: Dict[str, Any]) -> Dict[str, Any]:
         else:
             log_message("No stream-related options found to remove", level="debug")
     
+    log_message(f"Final message sequence: {[(m.get('role'), m.get('content', '')[:50] if isinstance(m.get('content'), str) else '...') for m in mistral_messages]}", level="debug")
     body_copy["messages"] = mistral_messages
     
     # Debug: Log final sanitized body

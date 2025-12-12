@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     
     # Logging Configuration
     LOG_FILE: str = Field(
-        "/var/log/vllm-proxy.log",
+        "/tmp/vllm-proxy.log",
         description="Path to the log file"
     )
     LOG_LEVEL: str = Field(

@@ -59,4 +59,5 @@ Thumbs.db
 docker-compose.override.yml
 
 # Tests
-.test_results
+.test_results# Log files
+*.log
