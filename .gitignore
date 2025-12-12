@@ -1,0 +1,61 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+.venv/
+venv/
+ENV/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Logs
+logs/
+*.log
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Build
+build/
+dist/
+*.egg-info/
+
+# Dependency directories
+node_modules/
+
+# Coverage
+.coverage
+htmlcov/
+
+# Poetry
+poetry.lock
+
+# MacOS
+.DS_Store
+
+# Windows
+Thumbs.db
+
+# Python cache
+.python-version
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Database
+*.db
+*.sqlite
+
+# Docker
+docker-compose.override.yml
+
+# Tests
+.test_results
