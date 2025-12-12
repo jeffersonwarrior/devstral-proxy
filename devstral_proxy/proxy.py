@@ -145,9 +145,6 @@ class DevstralProxy:
             if task_metadata:
                 log_message(f"[{request_id}] TASK EXECUTION DETECTED: {task_metadata['trigger']}", level="info")
                 log_message(f"[{request_id}] Task requires actual tool execution (not just LLM response)", level="warning")
-                # Force tool calling by setting tool_choice
-                body["tool_choice"] = "required"
-                log_message(f"[{request_id}] Set tool_choice=required to force tool execution", level="info")
                 
                 # Add instruction to ensure the model actually executes tools
                 if body.get("messages"):
@@ -163,7 +160,8 @@ You are in TASK EXECUTION mode. Your response MUST include tool calls to complet
 - Do NOT respond with generic messages like "Task completed" without actually calling tools
 - You MUST use the available tools to perform the actual work
 - Every request item must have a corresponding tool call
-- Failure to call tools is a critical error"""
+- Failure to call tools is a critical error
+- When in doubt, err on the side of calling tools"""
                     
                     if system_msg:
                         system_msg["content"] += "\n\n" + execution_instruction
@@ -172,6 +170,8 @@ You are in TASK EXECUTION mode. Your response MUST include tool calls to complet
                             "role": "system",
                             "content": execution_instruction
                         })
+                    
+                    log_message(f"[{request_id}] Injected task execution instruction into system message", level="info")
             # Sanitize and convert request
             try:
                 original_streaming = body.get("stream", False)
