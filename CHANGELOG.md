@@ -2,6 +2,41 @@
 
 All notable changes to the Devstral Proxy project will be documented in this file.
 
+## [1.1.0] - 2025-12-12
+
+### 🐛 Bug Fixes
+
+- **Task Execution Flow**: Fixed glitch where task execution requests (e.g., "do these items") would respond with "Task completed" without actually executing tools
+- **Request Validation**: Added task detection to distinguish between chat messages and task execution requests
+
+### ✨ Improvements
+
+- **Task Detection**: Implemented pattern-based task detection for execution requests
+  - Detects: "do these items", "implement these", "create these", "write these", "fix these", "complete these items", "execute these tasks", "proceed with", "start implementing"
+  - Returns metadata about task requests for proper routing
+
+- **Execution Enforcement**: Automatically injects mandatory system instructions for task requests
+  - Forces LLM backend to call appropriate tools instead of providing generic responses
+  - Prevents "Task completed" without actual work execution
+
+- **Response Validation**: Added validation to ensure task execution responses include tool calls
+  - Logs warnings when task requests lack expected tool invocations
+  - Improves visibility into transaction flow
+
+- **Enhanced Logging**: Improved logging for task execution tracking
+  - Task detection logged at INFO level
+  - Missing tool calls logged as warnings
+  - Full transaction audit trail in `/var/log/devstral-proxy.log`
+
+### 📊 Transaction Flow Improvements
+
+- Task execution requests now go through three-stage validation:
+  1. **Detection**: Identify if request is task execution vs. chat
+  2. **Enforcement**: Inject execution instructions into system message
+  3. **Validation**: Verify response includes tool calls
+
+---
+
 ## [1.0.0] - 2024-12-12
 
 ### 🎉 Initial Release
