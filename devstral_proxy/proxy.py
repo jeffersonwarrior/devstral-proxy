@@ -145,6 +145,10 @@ class DevstralProxy:
             if task_metadata:
                 log_message(f"[{request_id}] TASK EXECUTION DETECTED: {task_metadata['trigger']}", level="info")
                 log_message(f"[{request_id}] Task requires actual tool execution (not just LLM response)", level="warning")
+                # Force tool calling by setting tool_choice
+                body["tool_choice"] = "required"
+                log_message(f"[{request_id}] Set tool_choice=required to force tool execution", level="info")
+                
                 # Add instruction to ensure the model actually executes tools
                 if body.get("messages"):
                     # Find or create system message
@@ -154,12 +158,19 @@ class DevstralProxy:
                             system_msg = msg
                             break
                     
+                    execution_instruction = """CRITICAL INSTRUCTION - TASK EXECUTION MODE:
+You are in TASK EXECUTION mode. Your response MUST include tool calls to complete the requested items.
+- Do NOT respond with generic messages like "Task completed" without actually calling tools
+- You MUST use the available tools to perform the actual work
+- Every request item must have a corresponding tool call
+- Failure to call tools is a critical error"""
+                    
                     if system_msg:
-                        system_msg["content"] += "\n\nIMPORTANT: This is a TASK EXECUTION request. You MUST call the appropriate tools to complete the requested items. Do not just respond with 'Task completed' - actually execute the work."
+                        system_msg["content"] += "\n\n" + execution_instruction
                     else:
                         body["messages"].insert(0, {
                             "role": "system",
-                            "content": "IMPORTANT: This is a TASK EXECUTION request. You MUST call the appropriate tools to complete the requested items. Do not just respond with 'Task completed' - actually execute the work."
+                            "content": execution_instruction
                         })
             # Sanitize and convert request
             try:
