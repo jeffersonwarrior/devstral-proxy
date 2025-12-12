@@ -199,6 +199,82 @@ class DevstralProxy:
             if any(name in ["search_replace", "read_file", "write_file", "grep", "bash", "todo"] for name in tool_names):
                 return True
         return False
+    def _validate_tool_calls(self, tool_calls: List[Dict[str, Any]], model_name: str = "unknown") -> bool:
+        """
+        Validate tool calls against model-specific constraints
+        
+        Args:
+            tool_calls: List of tool calls to validate
+            model_name: Name of the model for specific validation rules
+            
+        Returns:
+            True if tool calls are valid, False otherwise
+        """
+        if not tool_calls:
+            return True
+            
+        model_settings = self.get_model_settings(model_name)
+        max_tool_calls = model_settings.get("max_tool_calls", 10)
+        
+        # Check tool call count limit
+        if len(tool_calls) > max_tool_calls:
+            log_message(f"Tool call limit exceeded: {len(tool_calls)} > {max_tool_calls}", level="warning")
+            return False
+        
+        # Validate each tool call structure
+        for i, tool_call in enumerate(tool_calls):
+            if "function" not in tool_call:
+                log_message(f"Tool call {i+1} missing 'function' field", level="error")
+                return False
+                
+            function = tool_call["function"]
+            if "name" not in function or not function["name"]:
+                log_message(f"Tool call {i+1} missing or empty 'name' field", level="error")
+                return False
+                
+            if "arguments" not in function:
+                log_message(f"Tool call {i+1} missing 'arguments' field", level="error")
+                return False
+        
+        return True
+    
+    def _handle_tool_call_error(self, request_id: str, error: str, details: Dict[str, Any] = None) -> JSONResponse:
+        """
+        Handle tool call errors with detailed error information
+        
+        Args:
+            request_id: Request ID for tracking
+            error: Error message
+            details: Additional error details
+            
+        Returns:
+            JSONResponse with error information
+        """
+        error_response = {
+            "error": error,
+            "request_id": request_id,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        if details:
+            error_response["details"] = details
+            
+        if self.debug:
+            error_response["debug_info"] = {
+                "proxy_version": self.version,
+                "vllm_target": self.vllm_base,
+                "model_settings": list(self.model_settings.keys())
+            }
+        
+        log_message(f"[{request_id}] Tool call error: {error}", level="error")
+        if details:
+            log_message(f"[{request_id}] Error details: {json.dumps(details, indent=2, default=str)}", level="debug")
+            
+        return JSONResponse(
+            content=error_response,
+            status_code=400,
+        )
+        
         except Exception as e:
             log_message(f"[{request_id}] Unexpected error: {str(e)}", level="error")
             if self.debug:
