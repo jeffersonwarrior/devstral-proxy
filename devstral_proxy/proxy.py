@@ -163,42 +163,25 @@ class DevstralProxy:
                     status_code=resp.status_code,
                     media_type=resp.headers.get("content-type", "application/json"),
                 )
-        # Check if we've exceeded the limit
-        if len(self.) >= self.:
-            # Trigger circuit breaker for 5 minutes
-        # Add current timestamp
-        self..append(now)
-        return False
-        # Create a signature for this tool call
-        # Add to history
-        # Keep history within limits
-        # Check for repeated patterns in the detection window
-        if signature_count > self.:
-            log_message(f": {signature_count} identical tool calls in window", level="warning")
-            return True
-        return False
-        # Create signature from function names and arguments
-        signature_parts = []
-        for call in sorted_calls:
-            func_name = call.get("function", {}).get("name", "unknown")
-            func_args = call.get("function", {}).get("arguments", "{}")
-            signature_parts.append(f"{func_name}({func_args})")
-        return ", ".join(signature_parts)
-        # Check for VIBE-specific patterns
-        for msg in messages:
-            content = msg.get("content", "")
-            if isinstance(content, str):
-                # VIBE CLI often mentions specific tools or has structured requests
-                if any(keyword in content for keyword in ["search_replace", "read_file", "grep", "bash", "todo"]):
-                    return True
-        # Check if tools are reasonable (not system prompt)
-        tools = body.get("tools", [])
-        if tools:
-            tool_names = [tool.get("function", {}).get("name", "") for tool in tools]
-            # VIBE tools are specific
-            if any(name in ["search_replace", "read_file", "write_file", "grep", "bash", "todo"] for name in tool_names):
-                return True
-        return False
+            except Exception as e:
+                log_message(f"[{request_id}] Unexpected error: {str(e)}", level="error")
+                if self.debug:
+                    import traceback
+                    log_message(f"[{request_id}] Traceback: {traceback.format_exc()}", level="error")
+                return JSONResponse(
+                    content={"error": f"Proxy error: {str(e)}"},
+                    status_code=500,
+                )
+        except Exception as e:
+            log_message(f"[{request_id}] Unexpected outer error: {str(e)}", level="error")
+            if self.debug:
+                import traceback
+                log_message(f"[{request_id}] Outer traceback: {traceback.format_exc()}", level="error")
+            return JSONResponse(
+                content={"error": f"Proxy outer error: {str(e)}"},
+                status_code=500,
+            )
+
     def _validate_tool_calls(self, tool_calls: List[Dict[str, Any]], model_name: str = "unknown") -> bool:
         """
         Validate tool calls against model-specific constraints
@@ -274,13 +257,3 @@ class DevstralProxy:
             content=error_response,
             status_code=400,
         )
-        
-        except Exception as e:
-            log_message(f"[{request_id}] Unexpected error: {str(e)}", level="error")
-            if self.debug:
-                import traceback
-                log_message(f"[{request_id}] Traceback: {traceback.format_exc()}", level="error")
-            return JSONResponse(
-                content={"error": f"Proxy error: {str(e)}"},
-                status_code=500,
-            )
