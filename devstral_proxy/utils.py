@@ -4,6 +4,7 @@ Devstral Proxy - Utility Functions
 Core utility functions for message conversion and validation.
 """
 
+import json
 import logging
 from typing import Dict, List, Any, Optional
 
@@ -74,10 +75,34 @@ def convert_openai_to_mistral_message(msg: Dict[str, Any]) -> Optional[Dict[str,
     role = msg.get("role")
     log_message(f"Converting message with role: {role}", level="debug")
     
-    # Drop tool messages for Mistral
+    # Handle tool messages for Mistral
     if role == "tool":
-        log_message(f"Dropping tool message: {msg.get('content', 'N/A')}", level="debug")
-        return None
+        msg_copy = dict(msg)
+        content = msg_copy.get("content", "")
+        tool_call_id = msg_copy.get("tool_call_id")
+        
+        log_message(f"Processing tool message with tool_call_id: {tool_call_id}, content length: {len(content) if content else 0}", level="debug")
+        
+        # Mistral requires both content and tool_call_id for tool messages
+        if not tool_call_id:
+            log_message("Tool message missing tool_call_id - cannot convert", level="warning")
+            return None
+        
+        # Normalize content for Mistral
+        if isinstance(content, list):
+            # Handle list of content chunks
+            content_str = ""
+            for chunk in content:
+                if isinstance(chunk, dict) and chunk.get("type") == "text":
+                    content_str += chunk.get("text", "")
+            msg_copy["content"] = content_str
+        elif isinstance(content, str):
+            msg_copy["content"] = content
+        else:
+            msg_copy["content"] = str(content) if content else ""
+        
+        log_message(f"Successfully converted tool message", level="debug")
+        return msg_copy
     
     # Handle assistant messages
     if role == "assistant":
@@ -142,46 +167,37 @@ def convert_openai_to_mistral_message(msg: Dict[str, Any]) -> Optional[Dict[str,
 
 def validate_tool_call_correspondence(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
-    Ensure tool calls have responses
+    Validate that tool messages correspond to tool calls
     
     Mistral requires that tool calls must be followed by tool responses.
-    This function removes messages with tool calls that don't have corresponding responses.
+    This function validates correspondence and warns about mismatches.
     
     Args:
         messages: List of messages to validate
         
     Returns:
-        Filtered list of messages
+        Filtered list of messages (tool messages are KEPT, not removed)
     """
-    filtered_messages = []
-    pending_tool_call_ids = []
+    # Track tool calls and their corresponding results
+    tool_call_ids = {}  # Maps tool_call_id to whether it has a result
     
     for msg in messages:
-        if msg.get("role") == "tool":
-            continue
-        
         if msg.get("role") == "assistant" and msg.get("tool_calls"):
             for tool_call in msg["tool_calls"]:
-                pending_tool_call_ids.append(tool_call["id"])
+                tool_call_id = tool_call.get("id")
+                if tool_call_id:
+                    tool_call_ids[tool_call_id] = False
         
-        filtered_messages.append(msg)
+        elif msg.get("role") == "tool" and msg.get("tool_call_id"):
+            tool_call_ids[msg.get("tool_call_id")] = True
     
-    # Remove messages with tool calls that have no responses
-    if pending_tool_call_ids:
-        final_messages = []
-        tool_call_index = 0
-        
-        for msg in filtered_messages:
-            if (msg.get("role") == "assistant" and 
-                msg.get("tool_calls") and 
-                tool_call_index < len(pending_tool_call_ids)):
-                tool_call_index += len(msg["tool_calls"])
-            else:
-                final_messages.append(msg)
-        
-        return final_messages
+    # Warn about unmatched tool calls
+    for tool_call_id, has_result in tool_call_ids.items():
+        if not has_result:
+            log_message(f"Warning: Tool call {tool_call_id} has no corresponding result message", level="warning")
     
-    return filtered_messages
+    # Keep all messages including tool results
+    return messages
 
 
 def sanitize_request_body(body: Dict[str, Any]) -> Dict[str, Any]:
@@ -197,6 +213,9 @@ def sanitize_request_body(body: Dict[str, Any]) -> Dict[str, Any]:
         Mistral format request body
     """
     body_copy = dict(body)
+    
+    # Debug: Log original request body
+    log_message(f"Original request body: {json.dumps(body_copy, indent=2, default=str)}", level="debug")
     
     # Convert messages
     original_messages = body_copy.get("messages", [])
@@ -219,7 +238,70 @@ def sanitize_request_body(body: Dict[str, Any]) -> Dict[str, Any]:
         if body_copy.get("add_generation_prompt", True):
             mistral_messages.append({"role": "user", "content": " "})
     
+    # Remove stream options if stream is False
+    stream_value = body_copy.get("stream", False)
+    log_message(f"Stream value: {stream_value}", level="debug")
+    
+    if not stream_value:
+        # Check for and remove stream options - be very thorough
+        stream_options_found = []
+        
+        # Remove top-level stream options (but preserve the "stream" key itself)
+        for key in list(body_copy.keys()):
+            # Remove keys containing "stream" but NOT the "stream" key itself
+            if "stream" in key.lower() and key.lower() != "stream":
+                stream_options_found.append(key)
+                body_copy.pop(key, None)
+        
+        # Remove nested stream options in messages
+        if "messages" in body_copy:
+            for i, message in enumerate(body_copy["messages"]):
+                if isinstance(message, dict):
+                    for msg_key in list(message.keys()):
+                        if "stream" in msg_key.lower():
+                            stream_options_found.append(f"messages[{i}].{msg_key}")
+                            message.pop(msg_key, None)
+        
+        # Remove stream options in tools
+        if "tools" in body_copy:
+            for i, tool in enumerate(body_copy["tools"]):
+                if isinstance(tool, dict):
+                    for tool_key in list(tool.keys()):
+                        if "stream" in tool_key.lower():
+                            stream_options_found.append(f"tools[{i}].{tool_key}")
+                            tool.pop(tool_key, None)
+                    # Check nested structures in tools
+                    if "function" in tool and isinstance(tool["function"], dict):
+                        for func_key in list(tool["function"].keys()):
+                            if "stream" in func_key.lower():
+                                stream_options_found.append(f"tools[{i}].function.{func_key}")
+                                tool["function"].pop(func_key, None)
+        
+        # Remove stream options in other nested structures
+        for key, value in list(body_copy.items()):
+            if isinstance(value, dict):
+                for sub_key in list(value.keys()):
+                    if "stream" in sub_key.lower():
+                        stream_options_found.append(f"{key}.{sub_key}")
+                        value.pop(sub_key, None)
+            elif isinstance(value, list):
+                for j, item in enumerate(value):
+                    if isinstance(item, dict):
+                        for item_key in list(item.keys()):
+                            if "stream" in item_key.lower():
+                                stream_options_found.append(f"{key}[{j}].{item_key}")
+                                item.pop(item_key, None)
+        
+        if stream_options_found:
+            log_message(f"Removed stream-related options: {stream_options_found}", level="info")
+        else:
+            log_message("No stream-related options found to remove", level="debug")
+    
     body_copy["messages"] = mistral_messages
+    
+    # Debug: Log final sanitized body
+    log_message(f"Sanitized request body: {json.dumps(body_copy, indent=2, default=str)}", level="debug")
+    
     return body_copy
 
 

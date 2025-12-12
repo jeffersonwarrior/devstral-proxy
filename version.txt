@@ -1,0 +1,1 @@
+Created by Jefferson Nunn using Nexora-CLI, Cerebras GLM 4.6, Sonnet 4.5, Haiku 4.5, Devstral 2

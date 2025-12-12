@@ -97,6 +97,7 @@ class DevstralProxy:
                 )
             # Sanitize and convert request
             try:
+                original_streaming = body.get("stream", False)
                 sanitized_body = sanitize_request_body(body)
                 # Log tool information if present
                 original_tools = body.get("tools", [])
