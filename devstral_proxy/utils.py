@@ -101,10 +101,14 @@ def convert_openai_to_mistral_message(msg: Dict[str, Any]) -> Optional[Dict[str,
                     log_message(f"Removed index field from tool call", level="debug")
                 
                 if isinstance(tool_call, dict) and "id" in tool_call and "function" in tool_call:
+                    # Enhanced Mistral format for Devstral models
                     mistral_tool_calls.append({
                         "id": tool_call["id"],
                         "type": tool_call.get("type", "function"),
-                        "function": tool_call["function"]
+                        "function": {
+                            "name": tool_call["function"]["name"],
+                            "arguments": tool_call["function"]["arguments"]
+                        }
                     })
                     log_message(f"Converted tool call to Mistral format: {tool_call['function']['name']}", level="debug")
             

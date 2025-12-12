@@ -30,6 +30,36 @@ class DevstralProxy:
         self.debug = settings.DEBUG
         self.version = "1.0.0"
         self.start_time = datetime.now()
+        self.model_settings = settings.MODEL_SPECIFIC_SETTINGS
+    def get_model_settings(self, model_name: str) -> dict:
+        """
+        Get model-specific settings
+        
+        Args:
+            model_name: Name of the model
+            
+        Returns:
+            Dictionary of model-specific settings or default settings
+        """
+        # Extract base model name (handle aliases)
+        base_model = model_name.split("-")[0] if "-" in model_name else model_name
+        
+        # Try to find exact match first
+        if model_name in self.model_settings:
+            return self.model_settings[model_name]
+        
+        # Try base model name
+        if base_model in self.model_settings:
+            return self.model_settings[base_model]
+        
+        # Return default settings
+        return {
+            "tool_call_format": "mistral",
+            "requires_strict_validation": False,
+            "max_tool_calls": 5,
+            "tool_call_timeout": 30.0
+        }
+    
     def health_check(self) -> Dict[str, Any]:
         """
         Return health status and configuration
@@ -42,6 +72,7 @@ class DevstralProxy:
             "uptime": uptime,
             "vllm_target": self.vllm_base,
             "debug_mode": self.debug,
+            "supported_models": list(self.model_settings.keys()),
             "timestamp": datetime.now().isoformat(),
         }
     async def handle_chat_completion(self, request: Request):
