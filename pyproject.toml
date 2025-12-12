@@ -2,9 +2,13 @@
 name = "devstral-proxy"
 version = "1.0.0"
 description = "Mistral ↔ OpenAI Translation Proxy"
-authors = ["Devstral AI <engineering@devstral.ai>"]
+authors = ["Jefferson Nunn <jefferson@nexora.ai>"]
 license = "MIT"
 readme = "README.md"
+repository = "https://github.com/jefferson-nunn/devstral-proxy"
+homepage = "https://github.com/jefferson-nunn/devstral-proxy"
+documentation = "https://github.com/jefferson-nunn/devstral-proxy#readme"
+keywords = ["mistral", "openai", "proxy", "translation", "api"]
 packages = [{include = "devstral_proxy"}]
 
 [tool.poetry.dependencies]

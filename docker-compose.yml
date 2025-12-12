@@ -1,0 +1,88 @@
+version: '3.8'
+
+services:
+  devstral-proxy:
+    build: .
+    ports:
+      - "9000:9000"
+    environment:
+      # VLLM Server Configuration
+      - VLLM_BASE=http://vllm-server:8000
+      
+      # Proxy Configuration
+      - PROXY_HOST=0.0.0.0
+      - PROXY_PORT=9000
+      
+      # Debug and Logging
+      - DEBUG=false
+      - LOG_LEVEL=info
+      - LOG_FILE=/app/logs/proxy.log
+      
+      # Performance
+      - WORKER_THREADS=4
+      - MAX_CONNECTIONS=100
+      - REQUEST_TIMEOUT=30
+    volumes:
+      # Mount logs directory
+      - ./logs:/app/logs
+      
+      # Mount configuration if needed
+      - ./config:/app/config:ro
+    
+    restart: unless-stopped
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    
+    networks:
+      - devstral-network
+      
+    depends_on:
+      - vllm-server
+
+  vllm-server:
+    # Placeholder for actual VLLM server configuration
+    # Replace with your actual VLLM server image and configuration
+    image: vllm/vllm-openai:latest
+    ports:
+      - "8000:8000"
+    environment:
+      - MODEL_ID=mistralai/Mistral-7B-Instruct-v0.2
+      - MAX_NUM_BATCHED_TOKENS=4096
+      - GPU_MEMORY_UTILIZATION=0.9
+    volumes:
+      - ./models:/app/models
+    restart: unless-stopped
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    
+    networks:
+      - devstral-network
+    
+    # GPU support - uncomment if using NVIDIA GPUs
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+networks:
+  devstral-network:
+    driver: bridge
+
+volumes:
+  logs:
+    driver: local
+  models:
+    driver: local
