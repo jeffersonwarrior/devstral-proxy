@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     
     # Logging Configuration
     LOG_FILE: str = Field(
-        "/tmp/vllm-proxy.log",
+        "/var/log/vllm-proxy.log",
         description="Path to the log file"
     )
     LOG_LEVEL: str = Field(
@@ -109,7 +109,15 @@ def configure_logging():
     
     # File handler
     log_dir = os.path.dirname(settings.LOG_FILE)
-    os.makedirs(log_dir, exist_ok=True)
+    try:
+        os.makedirs(log_dir, exist_ok=True)
+    except PermissionError:
+        # Fallback to /tmp if /var/log is not writable
+        fallback_log = "/tmp/vllm-proxy.log"
+        print(f"Warning: Cannot create log directory {log_dir}, falling back to {fallback_log}")
+        settings.LOG_FILE = fallback_log
+        log_dir = os.path.dirname(settings.LOG_FILE)
+        os.makedirs(log_dir, exist_ok=True)
     
     file_handler = RotatingFileHandler(
         settings.LOG_FILE,
