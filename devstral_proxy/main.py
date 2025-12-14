@@ -4,29 +4,16 @@ Devstral Proxy - Main Application
 Entry point for the Devstral Proxy server.
 """
 
+import argparse
 import os
-import logging
-from typing import Dict, Any
+from typing import Any, Dict, Optional, Sequence
 
-from fastapi import FastAPI, Request, Response
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, Request
 import uvicorn
 
-from .config import settings
+from .config import configure_logging, settings
 from .proxy import DevstralProxy
 from .utils import log_message
-
-# Configure logging
-logging.basicConfig(
-    level=getattr(logging, settings.LOG_LEVEL.upper()),
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.FileHandler(settings.LOG_FILE),
-        logging.StreamHandler(),
-    ],
-)
-
-logger = logging.getLogger("devstral_proxy")
 
 # Create FastAPI app
 app = FastAPI(
@@ -39,6 +26,56 @@ app = FastAPI(
 
 # Initialize proxy
 proxy = DevstralProxy()
+
+
+def _parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(prog="devstral_proxy")
+    parser.add_argument(
+        "--enable-logging",
+        action="store_true",
+        help="Enable proxy application logging.",
+    )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable debug mode (allows debug-level logs when logging is enabled).",
+    )
+    parser.add_argument(
+        "--log-level",
+        choices=["debug", "info", "warning", "error", "critical"],
+        default=None,
+        help="Override log level.",
+    )
+    parser.add_argument(
+        "--log-file",
+        default=None,
+        help="Override log file path.",
+    )
+    parser.add_argument(
+        "--dev",
+        action="store_true",
+        help="Enable verbose development logging (equivalent to --enable-logging --debug --log-level debug).",
+    )
+    return parser.parse_args(argv)
+
+
+def _apply_runtime_settings(args: argparse.Namespace) -> None:
+    if args.dev:
+        settings.LOGGING_ENABLED = True
+        settings.DEBUG = True
+        settings.LOG_LEVEL = "debug"
+
+    if args.enable_logging:
+        settings.LOGGING_ENABLED = True
+
+    if args.debug:
+        settings.DEBUG = True
+
+    if args.log_level:
+        settings.LOG_LEVEL = args.log_level
+
+    if args.log_file:
+        settings.LOG_FILE = args.log_file
 
 
 @app.post("/v1/chat/completions")
@@ -84,9 +121,13 @@ def main() -> None:
     
     Starts the Devstral Proxy server.
     """
-    # Ensure log directory exists
-    os.makedirs(os.path.dirname(settings.LOG_FILE), exist_ok=True)
-    
+    args = _parse_args()
+    _apply_runtime_settings(args)
+    configure_logging()
+
+    if settings.LOGGING_ENABLED:
+        os.makedirs(os.path.dirname(settings.LOG_FILE), exist_ok=True)
+
     log_message("Starting Devstral Proxy...", level="info")
     log_message(f"Configuration: {settings.model_dump_json()}", level="debug")
     
@@ -98,6 +139,7 @@ def main() -> None:
         reload=False,
         workers=1,
         log_level=settings.LOG_LEVEL,
+        access_log=settings.LOGGING_ENABLED,
     )
 
 
