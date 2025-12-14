@@ -29,17 +29,21 @@ class Settings(BaseSettings):
     
     # Debug Configuration
     DEBUG: bool = Field(
-        True,  # Changed to True for better tool call troubleshooting
+        False,
         description="Enable debug mode for detailed logging"
     )
-    
+
     # Logging Configuration
+    LOGGING_ENABLED: bool = Field(
+        False,
+        description="Enable proxy application logging"
+    )
     LOG_FILE: str = Field(
         "/var/log/vllm-proxy.log",
         description="Path to the log file"
     )
     LOG_LEVEL: str = Field(
-        "debug",  # Changed to debug for better tool call troubleshooting
+        "warning",
         description="Logging level (debug, info, warning, error)"
     )
     
@@ -97,9 +101,21 @@ def configure_logging():
     """Configure logging based on settings"""
     import logging
     from logging.handlers import RotatingFileHandler
-    
+
     logger = logging.getLogger("devstral_proxy")
-    logger.setLevel(getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO))
+
+    for handler in list(logger.handlers):
+        logger.removeHandler(handler)
+
+    logger.propagate = False
+
+    if not settings.LOGGING_ENABLED:
+        logger.disabled = True
+        logger.setLevel(logging.CRITICAL + 1)
+        return logger
+
+    logger.disabled = False
+    logger.setLevel(getattr(logging, settings.LOG_LEVEL.upper(), logging.WARNING))
     
     # Create formatter
     formatter = logging.Formatter(
@@ -135,6 +151,3 @@ def configure_logging():
         logger.addHandler(console_handler)
     
     return logger
-
-# Configure logging when module is imported
-logger = configure_logging()

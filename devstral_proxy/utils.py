@@ -21,6 +21,9 @@ def log_message(message: str, level: str = "info"):
         message: Message to log
         level: Log level (debug, info, warning, error)
     """
+    if not settings.LOGGING_ENABLED:
+        return
+
     if level == "debug" and not settings.DEBUG:
         return
     
